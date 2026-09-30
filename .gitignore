@@ -1,0 +1,6 @@
+node_modules/
+dist/
+dist-server/
+artifacts/
+.DS_Store
+*.local
