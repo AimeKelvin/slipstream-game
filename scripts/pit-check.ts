@@ -47,6 +47,10 @@ async function stop(earlyBy: number) {
 try {
   await page.goto('http://localhost:5173/', { waitUntil: 'domcontentloaded', timeout: 60000 });
   await page.locator('#loading.loaded').waitFor();
+  assert.ok(
+    await page.evaluate(() => Boolean(window.__SLIPSTREAM__)),
+    'Pit checks require the development server. Start it with npm run dev.',
+  );
   await page.click('#drive');
   assert.ok((await read()).trackLength > 3000);
   await page.screenshot({ path: 'artifacts/stint-hud.png' });
@@ -99,8 +103,16 @@ try {
     'Real-browser precise/missed stops, fresh tyres, pit exit and online service reconnect passed.',
   );
 } catch (error) {
-  await page.screenshot({ path: 'artifacts/pit-failure.png' });
-  console.error(JSON.stringify(await read()));
+  const evidence = await Promise.allSettled([
+    page.screenshot({ path: 'artifacts/pit-failure.png' }),
+    read(),
+  ]);
+  const diagnostics = evidence[1];
+  if (diagnostics.status === 'fulfilled') console.error(JSON.stringify(diagnostics.value));
+  for (const result of evidence) {
+    if (result.status === 'rejected')
+      console.error('Could not capture failure evidence:', result.reason);
+  }
   throw error;
 } finally {
   await browser.close();
