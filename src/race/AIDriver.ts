@@ -1,6 +1,8 @@
 import type { Circuit } from '../track/Circuit';
 import type { DriverInput, VehicleState } from '../vehicle/VehiclePhysics';
 import { angleDelta, clamp, damp } from '../core/math';
+import { pitDriverInput } from './PitStop';
+import { tyreGrip } from './Tyres';
 import { VEHICLE } from '../core/config';
 
 /** Curvature-limited racing line with look-ahead braking and a modest passing offset. */
@@ -10,14 +12,17 @@ export class AIDriver {
   readonly input: DriverInput = { throttle: 0, brake: 0, steer: 0 };
   constructor(private circuit: Circuit, private slot: number) {}
   update(s: VehicleState, others: VehicleState[], dt: number): DriverInput {
+    if (s.pitPhase) { this.stuck = 0; return pitDriverInput(s, this.circuit); }
+    if (s.tyres < 0.64 && s.pitStops === 0) s.pitRequested = true;
+    const grip = tyreGrip(s.tyres);
     const spacing = this.circuit.length / this.circuit.samples.length;
     const skill = 0.88 + (this.slot % 4) * 0.035;
-    let targetSpeed = 45 * skill;
+    let targetSpeed = 54 * skill * Math.sqrt(grip);
     for (let ahead = 5; ahead < 90; ahead += 7) {
       const index = s.contactIndex + Math.round(ahead / spacing);
       const a = this.circuit.at(index - 3), b = this.circuit.at(index + 3);
       const curvature = Math.abs(angleDelta(Math.atan2(a.tx, a.tz), Math.atan2(b.tx, b.tz))) / (6 * spacing);
-      const cornerSpeed = Math.sqrt(15 * skill / Math.max(curvature, 0.001));
+      const cornerSpeed = Math.sqrt(15 * skill * grip / Math.max(curvature, 0.001));
       targetSpeed = Math.min(targetSpeed, Math.sqrt(cornerSpeed ** 2 + 2 * 13 * Math.max(0, ahead - 8)));
     }
     let desiredLane = ((this.slot % 3) - 1) * 0.55;

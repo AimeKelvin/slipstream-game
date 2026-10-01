@@ -1,9 +1,10 @@
 import type { Mode } from './UI';
-import { TEAMS, type RoomView, type Snapshot } from '../network/protocol';
+import { CAR_COLORS, isCarColor, TEAMS, type RoomView, type Snapshot } from '../network/protocol';
 import type { ConnectionStatus } from '../network/RoomClient';
 
 export interface OnlineActions {
-  create(name: string): void; join(name: string, code: string): void; back(): void;
+  create(name: string, color: string): void; join(name: string, code: string, color: string): void; back(): void;
+  profile(name: string, color: string): void; preview(color: string): void;
   ready(value: boolean): void; start(): void; rematch(): void; leave(): void;
 }
 export function formatTime(seconds: number | null) {
@@ -18,12 +19,16 @@ export class OnlineUI {
   private mode: Mode = 'title';
   private status: ConnectionStatus = 'offline';
   private lastRanking = '';
+  private lastResults = '';
+  private lastRoom = '';
+  private color: string = CAR_COLORS[0].value;
   constructor(parent: HTMLElement, actions: OnlineActions) {
     this.root = document.createElement('div'); this.root.className = 'online-ui'; parent.append(this.root);
     this.root.innerHTML = `
       <section id="online-menu" class="online-screen screen" hidden>
-        <div class="online-panel"><p class="eyebrow">BETTER IN GOOD COMPANY</p><h2>Bring your rivals.</h2><p class="online-intro">A private grid for up to five friends.<br>AI fills the remaining seats. Three laps. All to play for.</p>
+        <div class="online-panel"><p class="eyebrow">BETTER IN GOOD COMPANY</p><h2>Bring your rivals.</h2><p class="online-intro">A private grid for up to five friends.<br>A 3.16 km circuit. Three laps. Tyre strategy. Your own pit crew.</p>
           <label class="field-label" for="driver-name">YOUR DRIVER NAME</label><input id="driver-name" maxlength="20" autocomplete="nickname" placeholder="Enter your name" value="Driver" />
+          ${this.colorPicker('driver')}
           <button id="create-room" class="primary">CREATE PRIVATE ROOM <span>↗</span></button>
           <div class="join-divider"><span>OR JOIN YOUR FRIENDS</span></div>
           <form id="join-form" class="join-form"><input id="room-code" maxlength="6" pattern="[A-Za-z2-9]{6}" aria-label="Room code" autocomplete="off" placeholder="ROOM CODE" required/><button id="join-room" type="submit">JOIN →</button></form>
@@ -33,12 +38,14 @@ export class OnlineUI {
       <section id="lobby-screen" class="online-screen screen" hidden>
         <div class="lobby-panel"><div class="lobby-heading"><div><p class="eyebrow">PRIVATE GRAND PRIX</p><h2>Your starting six.</h2></div><span class="circuit-pill">CALA SOLA<br><b>3 LAPS</b></span></div>
           <div class="invite-bar"><div><span>ROOM CODE</span><strong id="lobby-code"></strong></div><button id="copy-invite" class="text-button">COPY INVITE ↗</button></div><input id="invite-link" aria-label="Invite link" readonly/><p id="invite-status" class="invite-status">Send the link to your friends, then get ready.</p>
-          <div id="seat-list" class="seat-list"></div><p id="lobby-note" class="lobby-note"></p><div class="lobby-buttons"><button id="ready-button" class="primary">I'M READY <span>✓</span></button><button id="start-race" class="secondary">START RACE →</button></div><button id="leave-lobby" class="text-button">LEAVE ROOM</button>
+          <div id="seat-list" class="seat-list"></div>
+          <details id="edit-driver" class="driver-editor"><summary>EDIT YOUR NAME & COLOUR</summary><form id="profile-form"><label class="field-label" for="lobby-name">YOUR DRIVER NAME</label><input id="lobby-name" maxlength="20" autocomplete="nickname" required />${this.colorPicker('lobby')}<button type="submit" class="secondary">SAVE DRIVER →</button></form></details>
+          <p id="lobby-note" class="lobby-note"></p><div class="lobby-buttons"><button id="ready-button" class="primary">I'M READY <span>✓</span></button><button id="start-race" class="secondary">START RACE →</button></div><button id="leave-lobby" class="text-button">LEAVE ROOM</button>
         </div>
       </section>
       <div id="race-overlay" class="race-overlay" hidden>
         <div class="race-stats"><div><span>POSITION</span><strong id="race-position">1 <small>/ 6</small></strong></div><div><span>LAP</span><strong id="race-lap">1 <small>/ 3</small></strong></div></div>
-        <div class="lap-times"><span>CURRENT LAP <b id="lap-time">0:00.000</b></span><span>BEST LAP <b id="best-lap">—</b></span></div>
+        <div class="lap-times"><span>CURRENT LAP <b id="lap-time">0:00.000</b></span><span>BEST LAP <b id="best-lap">—</b></span><span>LAST LAP <b id="last-lap">—</b></span><span id="sector-status">SECTOR 1 / 3</span></div>
         <ol id="race-order" class="race-order"></ol><div id="start-countdown" class="start-countdown"><div class="start-lights">${'<i></i>'.repeat(5)}</div><strong id="countdown-label">GET READY</strong></div>
         <div id="finish-banner" class="finish-banner" hidden></div><span id="network-ping" class="network-ping"></span>
       </div>
@@ -49,14 +56,40 @@ export class OnlineUI {
     const get = <T extends HTMLElement>(id: string) => this.root.querySelector<T>(`#${id}`)!;
     const nameInput = get<HTMLInputElement>('driver-name');
     try { nameInput.value = localStorage.getItem('slipstream:name') ?? 'Driver'; } catch { /* Optional preference. */ }
+    try { const saved = localStorage.getItem('slipstream:color'); if (isCarColor(saved)) this.color = saved; } catch { /* Optional preference. */ }
+    this.selectColor('driver', this.color); actions.preview(this.color);
+    for (const prefix of ['driver', 'lobby']) {
+      get(`${prefix}-colors`).querySelectorAll<HTMLButtonElement>('button').forEach(button => {
+        button.onclick = () => {
+          const color = button.dataset.color!; this.selectColor(prefix, color);
+          if (prefix === 'driver') { this.color = color; actions.preview(color); }
+        };
+      });
+    }
+    const save = (value: string, color: string) => {
+      try { localStorage.setItem('slipstream:name', value); localStorage.setItem('slipstream:color', color); } catch { /* Optional preference. */ }
+    };
     const name = () => {
       const value = nameInput.value.trim();
       if (!value) { get('online-status').textContent = 'Choose a driver name first.'; nameInput.focus(); return null; }
-      try { localStorage.setItem('slipstream:name', value); } catch { /* Optional preference. */ }
+      save(value, this.color);
       return value;
     };
-    get('create-room').onclick = () => { const value = name(); if (value) actions.create(value); };
-    get('join-form').onsubmit = event => { event.preventDefault(); const value = name(); if (value) actions.join(value, get<HTMLInputElement>('room-code').value); };
+    get('create-room').onclick = () => { const value = name(); if (value) actions.create(value, this.color); };
+    get('join-form').onsubmit = event => { event.preventDefault(); const value = name(); if (value) actions.join(value, get<HTMLInputElement>('room-code').value, this.color); };
+    get('edit-driver').addEventListener('toggle', () => {
+      if (!(get('edit-driver') as HTMLDetailsElement).open) return;
+      const seat = this.room?.seats[this.slot]; if (!seat) return;
+      get<HTMLInputElement>('lobby-name').value = seat.name; this.selectColor('lobby', seat.color);
+    });
+    get('profile-form').onsubmit = event => {
+      event.preventDefault();
+      const value = get<HTMLInputElement>('lobby-name').value.trim(); if (!value) return;
+      const color = get('lobby-colors').querySelector<HTMLButtonElement>('[aria-pressed="true"]')!.dataset.color!;
+      actions.profile(value, color); save(value, color);
+      nameInput.value = value; this.color = color; this.selectColor('driver', color);
+      (get('edit-driver') as HTMLDetailsElement).open = false;
+    };
     get('online-back').onclick = actions.back;
     get('ready-button').onclick = () => actions.ready(!this.ready);
     get('start-race').onclick = actions.start; get('leave-lobby').onclick = actions.leave;
@@ -69,6 +102,13 @@ export class OnlineUI {
     const invite = new URL(location.href).searchParams.get('room');
     if (invite && /^[A-Z2-9]{6}$/i.test(invite)) get<HTMLInputElement>('room-code').value = invite.toUpperCase();
   }
+  private colorPicker(prefix: string) {
+    return `<fieldset class="color-picker"><legend>YOUR CAR COLOUR</legend><div id="${prefix}-colors" class="color-swatches">${CAR_COLORS.map(color => `<button type="button" class="color-swatch" data-color="${color.value}" style="--swatch:${color.value}" aria-label="${color.name}" title="${color.name}" aria-pressed="false"><span>✓</span></button>`).join('')}</div><p id="${prefix}-color-name" class="color-name"></p></fieldset>`;
+  }
+  private selectColor(prefix: string, color: string) {
+    this.get(`${prefix}-colors`).querySelectorAll<HTMLButtonElement>('button').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.color === color)));
+    this.get(`${prefix}-color-name`).textContent = CAR_COLORS.find(c => c.value === color)?.name ?? '';
+  }
   show(mode: Mode) {
     this.mode = mode;
     for (const [id, visible] of [['online-menu', mode === 'online'], ['lobby-screen', mode === 'lobby'], ['race-overlay', mode === 'racing'], ['results-screen', mode === 'results']] as const) this.get(id).hidden = !visible;
@@ -80,12 +120,16 @@ export class OnlineUI {
     const busy = status === 'connecting' || status === 'reconnecting';
     for (const id of ['create-room', 'join-room']) (this.get(id) as HTMLButtonElement).disabled = busy;
     if (busy) this.get('online-status').textContent = status === 'connecting' ? 'Connecting to the race server…' : 'Reconnecting to your car…';
+    else this.get('online-status').textContent = 'No account needed. Just a name and a room code.';
     const banner = this.get('connection-banner'); banner.hidden = !busy || this.mode === 'title';
     banner.textContent = status === 'reconnecting' ? 'RECONNECTING · AI IS KEEPING YOUR CAR IN THE RACE' : 'CONNECTING TO THE RACE SERVER…';
   }
   error(message: string) { this.get('online-status').textContent = message; this.get('lobby-note').textContent = message; }
   updateRoom(room: RoomView, playerId: string, slot: number) {
     this.room = room; this.slot = slot;
+    const signature = JSON.stringify(room);
+    if (this.lastRoom === signature) return;
+    this.lastRoom = signature;
     const owner = room.ownerId === playerId;
     const self = room.seats.find(s => s.playerId === playerId); this.ready = self?.ready ?? false;
     this.get('lobby-code').textContent = room.code;
@@ -93,7 +137,7 @@ export class OnlineUI {
     const list = this.get('seat-list'); list.replaceChildren();
     for (const seat of room.seats) {
       const row = document.createElement('div'); row.className = `seat-row${seat.playerId === playerId ? ' is-you' : ''}`;
-      row.style.setProperty('--team-color', TEAMS[seat.slot].color);
+      row.style.setProperty('--team-color', seat.color);
       row.innerHTML = '<span class="seat-number"></span><div class="seat-driver"><strong></strong><span></span></div><span class="seat-state"></span>';
       row.querySelector('.seat-number')!.textContent = TEAMS[seat.slot].number;
       row.querySelector('.seat-driver strong')!.textContent = seat.name + (seat.playerId === playerId ? ' · YOU' : '');
@@ -115,7 +159,7 @@ export class OnlineUI {
     const own = snapshot.racers[this.slot]; if (!own) return;
     this.get('race-position').innerHTML = `${own.position} <small>/ 6</small>`;
     this.get('race-lap').innerHTML = `${own.lap} <small>/ ${this.room.laps}</small>`;
-    this.get('lap-time').textContent = formatTime(own.lapTime); this.get('best-lap').textContent = formatTime(own.bestLap);
+    this.get('lap-time').textContent = formatTime(own.lapTime); this.get('best-lap').textContent = formatTime(own.bestLap); this.get('last-lap').textContent = formatTime(own.lastLap); this.get('sector-status').textContent = `SECTOR ${own.sector} / 3${own.lapValid ? '' : ' · TRACK LIMITS'}`;
     this.get('network-ping').textContent = `${this.room.code} · ${ping} MS`;
     const remaining = this.room.startAt - now;
     const countdown = this.get('start-countdown'); countdown.hidden = !((snapshot.phase === 'countdown') || (snapshot.phase === 'racing' && snapshot.elapsed < 1));
@@ -125,11 +169,11 @@ export class OnlineUI {
     const finish = this.get('finish-banner'); finish.hidden = own.finishTime === null;
     finish.textContent = `FINISHED · P${own.position} · ${formatTime(own.finishTime)} — WAITING FOR THE FIELD`;
     const ranking = [...snapshot.racers].sort((a, b) => a.position - b.position);
-    const signature = ranking.map(r => `${r.slot}:${r.control}:${r.finishTime}`).join('|') + this.room.seats.map(s => s.name).join('|');
+    const signature = ranking.map(r => `${r.slot}:${r.control}:${r.finishTime}`).join('|') + this.room.seats.map(s => `${s.name}:${s.color}`).join('|');
     if (signature !== this.lastRanking) {
       this.lastRanking = signature; this.get('race-order').replaceChildren();
       for (const car of ranking) {
-        const row = document.createElement('li'); row.style.setProperty('--team-color', TEAMS[car.slot].color);
+        const row = document.createElement('li'); row.style.setProperty('--team-color', this.room.seats[car.slot].color);
         row.classList.toggle('is-you', car.slot === this.slot);
         const name = document.createElement('span'); name.textContent = this.room.seats[car.slot].name;
         const place = document.createElement('b'); place.textContent = String(car.position);
@@ -140,11 +184,14 @@ export class OnlineUI {
     if (snapshot.phase === 'results') this.results(snapshot);
   }
   private results(snapshot: Snapshot) {
+    const signature = JSON.stringify([snapshot.raceId, snapshot.racers.map(r => [r.slot, r.position, r.finishTime, r.bestLap]), this.room?.seats]);
+    if (signature === this.lastResults) return;
+    this.lastResults = signature;
     const own = snapshot.racers[this.slot];
     this.get('result-summary').textContent = own.finishTime === null ? `P${own.position} · Time limit reached. The coast will be here for another run.` : `P${own.position} · ${formatTime(own.finishTime)}. Same time, same coast?`;
     const list = this.get('result-list'); list.replaceChildren();
     for (const car of [...snapshot.racers].sort((a, b) => a.position - b.position)) {
-      const row = document.createElement('div'); row.className = 'result-row'; row.style.setProperty('--team-color', TEAMS[car.slot].color);
+      const row = document.createElement('div'); row.className = 'result-row'; row.style.setProperty('--team-color', this.room!.seats[car.slot].color);
       if (car.slot === this.slot) row.classList.add('is-you');
       const driver = document.createElement('strong'); driver.textContent = `${car.position}. ${this.room!.seats[car.slot].name}${car.slot === this.slot ? ' · YOU' : ''}`;
       const time = document.createElement('span'); time.textContent = car.finishTime === null ? 'DNF' : formatTime(car.finishTime);

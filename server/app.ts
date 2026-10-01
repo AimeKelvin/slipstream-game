@@ -67,11 +67,11 @@ export function createGameServer(options: { race?: Partial<RaceOptions>; maxRoom
             const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let code: string;
             do { code = Array.from({ length: 6 }, () => alphabet[randomInt(alphabet.length)]).join(''); } while (rooms.has(code));
             const room = new Room(code, now, options.race);
-            const player = room.addPlayer(message.name, now); rooms.set(code, room); c.room = room; c.player = player;
+            const player = room.addPlayer(message.name, now, message.color); rooms.set(code, room); c.room = room; c.player = player;
           } else {
             const room = rooms.get(message.code);
             if (!room) { send(c, { type: 'error', message: 'Room not found. It may have expired or the server restarted.', fatal: message.type === 'reconnect' }); return; }
-            c.player = message.type === 'reconnect' ? room.reconnect(message.token, now) : room.addPlayer(message.name, now); c.room = room;
+            c.player = message.type === 'reconnect' ? room.reconnect(message.token, now) : room.addPlayer(message.name, now, message.color); c.room = room;
             // A token-authenticated reconnect may arrive before a half-open old socket
             // times out. Transfer ownership without letting its close handler detach us.
             if (message.type === 'reconnect') for (const previous of connections) {
@@ -90,8 +90,10 @@ export function createGameServer(options: { race?: Partial<RaceOptions>; maxRoom
         switch (message.type) {
           case 'leave': leave(c, true); break;
           case 'ready': room.ready(id, message.value); break;
+          case 'profile': room.profile(id, message.name, message.color); break;
           case 'start': room.start(id, now); break;
           case 'rematch': room.rematch(id); break;
+          case 'pit': room.pit(id); break;
           case 'reset': room.reset(id, now); break;
           case 'away': room.away(id, message.value, now); break;
           case 'input': room.input(id, message.seq, message.input, message.raceId, now); break;

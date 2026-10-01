@@ -16,13 +16,15 @@ export class RaceSync {
   private correction = { x: 0, z: 0, heading: 0 };
   private accumulator = 0;
   private renderStates: VehicleState[];
+  private previousPredicted: VehicleState;
   constructor(circuit: Circuit, private client: RoomClient) {
     this.predicted = new VehiclePhysics(circuit);
+    this.previousPredicted = { ...this.predicted.state };
     this.renderStates = Array.from({ length: NET.racers }, () => ({ ...this.predicted.state }));
   }
   accept(snapshot: Snapshot) {
     const own = snapshot.racers[this.client.slot]; if (!own) return;
-    const reset = snapshot.raceId !== this.raceId || own.revision !== this.revision;
+    const reset = snapshot.raceId !== this.raceId || own.revision !== this.revision || this.latest?.racers[this.client.slot].control !== own.control || this.latest?.racers[this.client.slot].state.pitPhase !== own.state.pitPhase;
     if (reset) {
       this.pending = []; this.buffer = []; this.accumulator = 0;
       this.correction = { x: 0, z: 0, heading: 0 };
@@ -35,17 +37,23 @@ export class RaceSync {
     if (snapshot.phase === 'racing' && own.control === 'human' && own.finishTime === null) {
       for (const p of this.pending) { this.predicted.step(p.input, 1 / 120); this.predicted.step(p.input, 1 / 120); }
     } else this.pending = [];
+    if (reset) Object.assign(this.previousPredicted, this.predicted.state);
     if (!reset) {
       const dx = before.x - this.predicted.state.x, dz = before.z - this.predicted.state.z;
+      const dh = angleDelta(this.predicted.state.heading, before.heading);
       if (Math.hypot(dx, dz) < 12) {
         this.correction.x += dx; this.correction.z += dz;
-        this.correction.heading += angleDelta(this.predicted.state.heading, before.heading);
-      } else this.correction = { x: 0, z: 0, heading: 0 };
+        this.correction.heading += dh;
+        this.previousPredicted.x -= dx; this.previousPredicted.z -= dz; this.previousPredicted.heading -= dh;
+      } else {
+        this.correction = { x: 0, z: 0, heading: 0 };
+        Object.assign(this.previousPredicted, this.predicted.state);
+      }
     }
   }
   update(dt: number, input: DriverInput, driving: boolean) {
     if (!this.latest || !this.client.room) return;
-    this.accumulator += dt;
+    this.accumulator += Math.min(dt, 0.1);
     const own = this.latest.racers[this.client.slot];
     while (this.accumulator >= 1 / NET.inputHz) {
       if (this.client.status === 'online' && driving && ['countdown', 'racing'].includes(this.client.room.phase)) {
@@ -53,6 +61,7 @@ export class RaceSync {
         this.client.send({ type: 'input', seq, input, raceId: this.client.room.raceId });
         if (this.latest.phase === 'racing' && own.control === 'human' && own.finishTime === null) {
           this.pending.push({ seq, input: { ...input } });
+          Object.assign(this.previousPredicted, this.predicted.state);
           this.predicted.step(input, 1 / 120); this.predicted.step(input, 1 / 120);
         }
       }
@@ -75,6 +84,10 @@ export class RaceSync {
     }
     if (driving && this.client.status === 'online' && own.control === 'human' && own.finishTime === null && this.latest.phase === 'racing') {
       const out = this.renderStates[this.client.slot]; Object.assign(out, this.predicted.state);
+      const blend = this.accumulator * NET.inputHz;
+      out.x = this.previousPredicted.x + (out.x - this.previousPredicted.x) * blend;
+      out.z = this.previousPredicted.z + (out.z - this.previousPredicted.z) * blend;
+      out.heading = this.previousPredicted.heading + angleDelta(this.previousPredicted.heading, out.heading) * blend;
       out.x += this.correction.x; out.z += this.correction.z; out.heading += this.correction.heading;
     }
   }

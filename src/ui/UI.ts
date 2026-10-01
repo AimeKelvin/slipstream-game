@@ -1,7 +1,8 @@
 import type { Circuit } from '../track/Circuit';
 import type { VehicleState } from '../vehicle/VehiclePhysics';
+import { TRACK } from '../core/config';
 import type { Quality } from '../core/config';
-import { TEAMS } from '../network/protocol';
+import { TEAMS, type SeatView } from '../network/protocol';
 
 export type Mode = 'title' | 'driving' | 'paused' | 'online' | 'lobby' | 'racing' | 'results';
 export interface UIActions {
@@ -13,6 +14,7 @@ export interface UIActions {
   exit(): void;
   quality(value: Quality): void;
   sound(value: boolean): void;
+  volume(value: number): void;
 }
 export class UI {
   readonly canvas: HTMLCanvasElement;
@@ -25,6 +27,7 @@ export class UI {
   private mapBackground: HTMLCanvasElement;
   private toastTimer = 0;
   private carName = 'VELOCE / 07';
+  private colors: string[] = TEAMS.map(team => team.color);
   constructor(
     private root: HTMLElement,
     private circuit: Circuit,
@@ -44,10 +47,10 @@ export class UI {
         <div class="hud-top"><div class="session-label"><span class="speed-mark">///</span><div><strong>CALA SOLA</strong><span>FREE PRACTICE</span></div></div><div class="session-time"><span>SESSION TIME</span><strong id="elapsed">00:00.000</strong></div><button id="pause" class="icon-button" aria-label="Pause driving">Ⅱ</button></div>
         <div class="map-block"><canvas id="minimap" width="260" height="240" aria-label="Circuit map and car position"></canvas><span>THE COAST IS YOURS.</span></div>
         <div class="speedometer"><span id="surface" class="surface">VELOCE / 07</span><div class="speed-row"><div class="gear"><span>GEAR</span><strong id="gear">N</strong></div><strong id="speed">0</strong><span class="speed-unit">KM/H</span></div><div class="rev-track"><div id="revs"></div></div></div>
-        <div class="driving-help"><span><kbd>W A S D</kbd> DRIVE</span><span><kbd>R</kbd> RESET</span><span><kbd>C</kbd> CAMERA</span><span><kbd>ESC</kbd> PAUSE</span></div>
+        <div class="driving-help"><span><kbd>W A S D</kbd> DRIVE</span><span><kbd>R</kbd> RESET</span><span><kbd>P</kbd> PIT CALL</span><span><kbd>C</kbd> CAMERA</span><span><kbd>ESC</kbd> PAUSE</span></div>
       </section>
       <section id="pause-screen" class="screen pause-screen" hidden aria-label="Pause and settings">
-        <div class="pause-panel"><p class="eyebrow">TAKE A BREATHER</p><h2 id="pause-title">In the pits.</h2><p class="pause-description">Find your rhythm. Then find a little more.</p><button id="resume" class="primary">BACK ON TRACK <span>↗</span></button><div class="settings"><label>GRAPHICS<select id="quality"><option value="low">Low</option><option value="medium" selected>Medium</option><option value="high">High</option></select></label><label>ENGINE AUDIO<button id="sound" class="toggle" aria-pressed="true">ON</button></label></div><div class="control-guide"><div><kbd>W / ↑</kbd><span>Accelerate</span></div><div><kbd>S / ↓</kbd><span>Brake / reverse</span></div><div><kbd>A D / ← →</kbd><span>Steer</span></div><div><kbd>SPACE</kbd><span>Brake / reverse</span></div><div><kbd>R</kbd><span>Reset to circuit</span></div><div><kbd>C</kbd><span>Camera distance</span></div></div><p class="controller-note">Controller: left stick · RT accelerate · LT brake · Y reset</p><div class="pause-bottom"><button id="restart" class="text-button">RESTART SESSION</button><button id="exit" class="text-button">BACK TO TITLE ↗</button></div></div>
+        <div class="pause-panel"><p class="eyebrow">TAKE A BREATHER</p><h2 id="pause-title">In the pits.</h2><p class="pause-description">Find your rhythm. Then find a little more.</p><button id="resume" class="primary">BACK ON TRACK <span>↗</span></button><div class="settings"><label>GRAPHICS<select id="quality"><option value="low">Low</option><option value="medium" selected>Medium</option><option value="high">High</option></select></label><label>ENGINE AUDIO<button id="sound" class="toggle" aria-pressed="true">ON</button></label></div><div class="control-guide"><div><kbd>W / ↑</kbd><span>Accelerate</span></div><div><kbd>S / ↓</kbd><span>Brake / reverse</span></div><div><kbd>A D / ← →</kbd><span>Steer</span></div><div><kbd>SPACE</kbd><span>Brake / reverse</span></div><div><kbd>R</kbd><span>Reset to circuit</span></div><div><kbd>C</kbd><span>Camera distance</span></div><div><kbd>P</kbd><span>Call for tyres / cancel</span></div></div><p class="controller-note">Controller: left stick · RT accelerate · LT brake · Y reset · X pit call</p><div class="pause-bottom"><button id="restart" class="text-button">RESTART SESSION</button><button id="exit" class="text-button">BACK TO TITLE ↗</button></div></div>
       </section><div id="toast" role="status"></div>
       <div id="loading"><span class="speed-mark">///</span><p>FINDING THE COAST…</p></div>`;
     const get = <T extends HTMLElement>(id: string) => root.querySelector<T>(`#${id}`)!;
@@ -73,6 +76,12 @@ export class UI {
     });
     ctx.closePath();
     ctx.stroke();
+    ctx.strokeStyle = '#d5f06b'; ctx.lineWidth = 1.5; ctx.beginPath();
+    for (let d = 0; d <= circuit.pit.length; d += 2) {
+      const p = circuit.pit.point(d), [x, y] = this.mapPoint(p.x, p.z);
+      if (!d) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
     get('drive').onclick = actions.drive;
     get('play-online').onclick = actions.online;
     get('pause').onclick = actions.pause;
@@ -88,7 +97,23 @@ export class UI {
       button.setAttribute('aria-pressed', String(enabled));
       button.textContent = enabled ? 'ON' : 'OFF';
       actions.sound(enabled);
+      try { localStorage.setItem('slipstream:sound', String(enabled)); } catch { /* Optional preference. */ }
     };
+    const volumeLabel = document.createElement('label');
+    volumeLabel.className = 'volume-setting';
+    volumeLabel.innerHTML = 'ENGINE VOLUME <input id="engine-volume" type="range" min="0" max="100" value="40" aria-label="Engine volume"/><output id="volume-value">40%</output>';
+    root.querySelector('.settings')!.append(volumeLabel);
+    const volume = get<HTMLInputElement>('engine-volume');
+    const setVolume = () => { get('volume-value').textContent = `${volume.value}%`; actions.volume(Number(volume.value) / 100); };
+    volume.oninput = () => { setVolume(); try { localStorage.setItem('slipstream:volume', volume.value); } catch { /* Optional preference. */ } };
+    try {
+      const saved = localStorage.getItem('slipstream:volume');
+      if (saved !== null && Number.isFinite(Number(saved))) volume.value = saved;
+      if (localStorage.getItem('slipstream:sound') === 'false') {
+        get('sound').setAttribute('aria-pressed', 'false'); get('sound').textContent = 'OFF'; actions.sound(false);
+      }
+    } catch { /* Optional preference. */ }
+    setVolume();
   }
   loaded() {
     this.root.querySelector('#loading')!.classList.add('loaded');
@@ -108,8 +133,9 @@ export class UI {
       : 'BACK ON TRACK <span>↗</span>';
     (this.root.querySelector('#restart') as HTMLElement).hidden = fromTitle;
   }
-  setOnline(slot: number | null) {
-    this.carName = slot === null ? 'VELOCE / 07' : `${TEAMS[slot].name.toUpperCase()} / ${TEAMS[slot].number}`;
+  setOnline(slot: number | null, seats?: SeatView[]) {
+    this.colors = seats?.map(seat => seat.color) ?? TEAMS.map(team => team.color);
+    this.carName = slot === null ? 'VELOCE / 07' : `${seats?.[slot].name.toUpperCase() ?? TEAMS[slot].name.toUpperCase()} / ${TEAMS[slot].number}`;
     this.root.querySelector('.session-label div > span')!.textContent = slot === null ? 'FREE PRACTICE' : 'PRIVATE GRAND PRIX';
     this.root.querySelector('.session-time > span')!.textContent = slot === null ? 'SESSION TIME' : 'RACE TIME';
   }
@@ -131,10 +157,10 @@ export class UI {
     racers?.forEach((car, slot) => {
       if (slot === ownSlot) return;
       const [cx, cy] = this.mapPoint(car.x, car.z);
-      ctx.fillStyle = TEAMS[slot].color; ctx.beginPath(); ctx.arc(cx, cy, 3.5, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = this.colors[slot]; ctx.beginPath(); ctx.arc(cx, cy, 3.5, 0, Math.PI * 2); ctx.fill();
     });
     const [x, y] = this.mapPoint(state.x, state.z);
-    ctx.fillStyle = '#dcf581';
+    ctx.fillStyle = ownSlot >= 0 ? this.colors[ownSlot] : '#dcf581';
     ctx.beginPath();
     ctx.arc(x, y, 5, 0, Math.PI * 2);
     ctx.fill();
@@ -150,12 +176,12 @@ export class UI {
     this.toastTimer = window.setTimeout(() => toast.classList.remove('visible'), 2600);
   }
   private mapPoint(x: number, z: number) {
-    return [24 + (x + 170) * 0.56, 20 + (z + 210) * 0.5];
+    return [24 + (x / TRACK.scale + 170) * 0.56, 20 + (z / TRACK.scale + 210) * 0.5];
   }
   private trackSvg() {
     const points = this.circuit.samples
       .filter((_, i) => i % 5 === 0)
-      .map((p) => `${p.x + 190},${p.z + 225}`)
+      .map((p) => `${p.x / TRACK.scale + 190},${p.z / TRACK.scale + 225}`)
       .join(' ');
     return `<svg viewBox="0 0 440 420" class="track-outline" aria-label="Cala Sola circuit outline"><polygon points="${points}" fill="none" stroke="currentColor" stroke-width="9" stroke-linejoin="round"/><circle cx="30" cy="135" r="11" fill="#d5f06b"/></svg>`;
   }

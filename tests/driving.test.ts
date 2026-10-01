@@ -12,7 +12,7 @@ function run(car: VehiclePhysics, seconds: number, input = neutral) {
 }
 
 test('circuit is closed, consistently sampled, and wide enough at every point', () => {
-  assert.ok(circuit.length > 1000);
+  assert.ok(circuit.length > 3000);
   let minSeparation = Infinity;
   for (let i = 0; i < circuit.samples.length; i++) {
     const a = circuit.at(i),
@@ -81,7 +81,7 @@ test('a predictive test driver can complete the whole circuit with stable physic
   let distance = 0,
     worstOffset = 0,
     impacts = 0;
-  for (let frame = 0; frame < 120 * 130; frame++) {
+  for (let frame = 0; frame < 120 * Math.ceil(circuit.length / 19 * 1.3); frame++) {
     const s = car.state,
       lookahead = circuit.at(s.contactIndex + 11);
     const desired = Math.atan2(lookahead.x - s.x, lookahead.z - s.z);

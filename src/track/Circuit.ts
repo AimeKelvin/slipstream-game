@@ -1,4 +1,5 @@
 import { CatmullRomCurve3, Vector3 } from 'three';
+import { PitLane } from './PitLane';
 import { TRACK } from '../core/config';
 
 export interface TrackSample {
@@ -24,6 +25,7 @@ export interface TrackContact {
 export class Circuit {
   readonly samples: TrackSample[];
   readonly length: number;
+  readonly pit: PitLane;
   readonly curve: CatmullRomCurve3;
   constructor() {
     const points = [
@@ -51,7 +53,7 @@ export class Circuit {
       [-137, -179],
     ];
     this.curve = new CatmullRomCurve3(
-      points.map(([x, z]) => new Vector3(x, 0, z)),
+      points.map(([x, z]) => new Vector3(x * TRACK.scale, 0, z * TRACK.scale)),
       true,
       'centripetal',
     );
@@ -63,6 +65,7 @@ export class Circuit {
       const d = this.curve.getTangentAt(t).normalize();
       return { x: p.x, z: p.z, tx: d.x, tz: d.z, nx: d.z, nz: -d.x, distance: t * this.length };
     });
+    this.pit = new PitLane(this);
   }
   at(index: number) {
     return this.samples[

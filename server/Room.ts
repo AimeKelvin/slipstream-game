@@ -4,10 +4,10 @@ import { VehiclePhysics, type DriverInput } from '../src/vehicle/VehiclePhysics'
 import { AIDriver } from '../src/race/AIDriver';
 import { FINISH_INDEX, RaceProgress } from '../src/race/Progress';
 import { resolveCarContacts } from '../src/race/collisions';
-import { NET, NEUTRAL, TEAMS, type Control, type Phase, type RoomView, type Snapshot } from '../src/network/protocol';
+import { NET, NEUTRAL, TEAMS, isCarColor, type Control, type Phase, type RoomView, type Snapshot } from '../src/network/protocol';
 
 export interface Player {
-  id: string; token: string; slot: number; name: string; connected: boolean;
+  id: string; token: string; slot: number; name: string; color: string; connected: boolean;
   ready: boolean; away: boolean; disconnectedAt: number; lastInputAt: number;
   seq: number; ack: number; input: DriverInput; lastResetAt: number;
 }
@@ -18,7 +18,7 @@ const sharedCircuit = new Circuit();
 export class Room {
   readonly players = new Map<string, Player>();
   readonly circuit = sharedCircuit;
-  readonly cars = Array.from({ length: NET.racers }, () => new VehiclePhysics(this.circuit));
+  readonly cars = Array.from({ length: NET.racers }, (_, slot) => new VehiclePhysics(this.circuit, slot));
   readonly ai = Array.from({ length: NET.racers }, (_, i) => new AIDriver(this.circuit, i));
   progress: RaceProgress[] = [];
   revisions = Array<number>(NET.racers).fill(0);
@@ -36,6 +36,7 @@ export class Room {
   }
   private grid() {
     this.progress = this.cars.map((car, slot) => {
+      car.reset(true);
       const index = FINISH_INDEX - 6 - slot * 4;
       car.state.contactIndex = (index + this.circuit.samples.length) % this.circuit.samples.length;
       car.reset(); const p = this.circuit.at(index), lane = slot % 2 ? 2.7 : -2.7;
@@ -44,13 +45,14 @@ export class Room {
       return new RaceProgress(this.circuit, index, this.options.laps);
     });
   }
-  addPlayer(name: string, now: number): Player {
+  addPlayer(name: string, now: number, color?: string): Player {
     if (this.phase !== 'lobby') throw new Error('This race has started. Join after the host opens a rematch.');
     if (this.players.size >= NET.maxHumans) throw new Error('Room full: five human seats are already reserved.');
     const used = new Set([...this.players.values()].map(p => p.slot));
     const slot = Array.from({ length: NET.maxHumans }, (_, i) => i).find(i => !used.has(i))!;
     const player: Player = { id: randomUUID(), token: randomBytes(24).toString('hex'), slot,
       name: name.trim().replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 20) || 'Driver', connected: true,
+      color: isCarColor(color) ? color : TEAMS[slot].color,
       ready: false, away: false, disconnectedAt: 0, lastInputAt: now, seq: -1, ack: -1, input: { ...NEUTRAL }, lastResetAt: -Infinity };
     this.players.set(player.id, player); this.ownerId ??= player.id; this.lastOccupiedAt = now; this.dirty = true; return player;
   }
@@ -69,6 +71,13 @@ export class Room {
     this.dirty = true;
   }
   private requireOwner(id: string) { if (id !== this.ownerId) throw new Error('Only the room host can do that.'); }
+  profile(id: string, name: string, color: string) {
+    if (this.phase !== 'lobby') throw new Error('Change your driver in the lobby before the race.');
+    if (!isCarColor(color)) throw new Error('Choose one of the car colours.');
+    const p = this.players.get(id)!;
+    p.name = name.trim().replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 20) || 'Driver';
+    p.color = color; p.ready = false; this.dirty = true;
+  }
   ready(id: string, value: boolean) {
     if (this.phase !== 'lobby') throw new Error('Readiness can only change in the lobby.');
     const p = this.players.get(id)!; p.ready = value; this.dirty = true;
@@ -98,9 +107,14 @@ export class Room {
   away(id: string, value: boolean, now: number) {
     const p = this.players.get(id)!; p.away = value; p.input = { ...NEUTRAL }; p.lastInputAt = now; this.dirty = true;
   }
+  pit(id: string) {
+    const p = this.players.get(id)!;
+    if (this.phase !== 'racing' || this.progress[p.slot].finishTime !== null || this.cars[p.slot].state.pitPhase) return;
+    this.cars[p.slot].state.pitRequested = !this.cars[p.slot].state.pitRequested;
+  }
   reset(id: string, now: number) {
     const p = this.players.get(id)!;
-    if (this.phase !== 'racing' || now - p.lastResetAt < 3000 || this.progress[p.slot].finishTime !== null) return;
+    if (this.cars[p.slot].state.pitPhase || this.phase !== 'racing' || now - p.lastResetAt < 3000 || this.progress[p.slot].finishTime !== null) return;
     this.recover(p.slot); p.lastResetAt = now;
   }
   private recover(slot: number) {
@@ -141,7 +155,7 @@ export class Room {
       laps: this.options.laps, startAt: this.startAt, deadline: this.deadline,
       seats: this.cars.map((_, slot) => {
         const p = [...this.players.values()].find(p => p.slot === slot);
-        return { slot, playerId: p?.id ?? null, name: p?.name ?? `${TEAMS[slot].name} AI`, connected: p?.connected ?? false,
+        return { slot, playerId: p?.id ?? null, name: p?.name ?? `${TEAMS[slot].name} AI`, color: p?.color ?? TEAMS[slot].color, connected: p?.connected ?? false,
           ready: p?.ready ?? true, control: this.control(slot, now) };
       }) };
   }
@@ -155,11 +169,11 @@ export class Room {
         const p = this.progress[slot], player = [...this.players.values()].find(h => h.slot === slot);
         const state = { ...car.state };
         for (const key of Object.keys(state) as (keyof typeof state)[]) {
-          if (key !== 'offroad') state[key] = Math.round(state[key] * 10000) / 10000;
+          if (key !== 'offroad' && key !== 'pitRequested') state[key] = Math.round(state[key] * 10000) / 10000;
         }
         return { slot, state, ack: player?.ack ?? -1, revision: this.revisions[slot], distance: Math.round(p.distance * 100) / 100,
           lap: Math.min(this.options.laps, p.completedLaps + 1), position: order.findIndex(o => o.slot === slot) + 1,
-          lapTime: p.lapTime(this.elapsed), bestLap: p.bestLap, finishTime: p.finishTime, control: this.control(slot, now) };
+          lapTime: p.lapTime(this.elapsed), bestLap: p.bestLap, lastLap: p.lastLap, sector: p.sector, lapValid: p.lapValid, finishTime: p.finishTime, control: this.control(slot, now) };
       }) };
   }
 }

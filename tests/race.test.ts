@@ -47,11 +47,11 @@ test('reversing across the finish line and jumping checkpoints cannot earn laps'
   const circuit = new Circuit(), car = new VehiclePhysics(circuit);
   const progress = new RaceProgress(circuit, FINISH_INDEX, 3);
   let index = FINISH_INDEX, elapsed = 0;
-  const step = (direction: number) => { index = (index + direction + 900) % 900; car.state.contactIndex = index; progress.update(car.state, elapsed += 0.05); };
+  const step = (direction: number) => { index = (index + direction + circuit.samples.length) % circuit.samples.length; car.state.contactIndex = index; progress.update(car.state, elapsed += 0.05); };
   for (let n = 0; n < 20; n++) step(-1);
   for (let n = 0; n < 20; n++) step(1);
   assert.equal(progress.completedLaps, 0);
-  for (let n = 0; n < 901; n++) step(1);
+  for (let n = 0; n < circuit.samples.length + 1; n++) step(1);
   assert.equal(progress.completedLaps, 1);
   for (let n = 0; n < 50; n++) step(-1);
   for (let n = 0; n < 50; n++) step(1);
@@ -72,6 +72,7 @@ test('six AI-controlled cars finish three laps with valid results and useful ski
   }
   const snapshot = room.snapshot(frame * DT * 1000);
   console.log('AI race:', { seconds: frame / 120, offroadFrames, finishes: snapshot.racers.map(r => r.finishTime), recoveries: room.revisions.map(r => r - 2) });
+  assert.ok(snapshot.racers.every(r => r.state.pitStops >= 1), 'Every AI driver must use its pit crew during the race');
   assert.equal(room.phase, 'results'); assert.ok(snapshot.racers.every(r => r.finishTime !== null && r.bestLap !== null));
   assert.equal(new Set(snapshot.racers.map(r => r.position)).size, 6);
   assert.ok(offroadFrames < frame * 6 * 0.05, 'AI should spend at least 95% of its time on asphalt');

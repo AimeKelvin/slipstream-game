@@ -1,3 +1,6 @@
+import { StintUI } from '../ui/StintUI';
+import { RaceProgress } from '../race/Progress';
+import { TRACK } from './config';
 import { Circuit } from '../track/Circuit';
 import { World } from '../render/World';
 import { VehiclePhysics, type VehicleState } from '../vehicle/VehiclePhysics';
@@ -22,6 +25,8 @@ export class Game {
   readonly input: Input;
   readonly client: RoomClient;
   private sync: RaceSync;
+  private stintUI: StintUI;
+  private practiceProgress = new RaceProgress(this.circuit, TRACK.startIndex, Infinity);
   private onlineUI: OnlineUI;
   private raceCars: FormulaCar[] = [];
   private audio = new EngineAudio();
@@ -43,6 +48,7 @@ export class Game {
       pause: () => this.pause(), resume: () => this.resume(), restart: () => this.drive(),
       exit: () => this.exit(), quality: value => this.setQuality(value),
       sound: enabled => { this.audio.enabled = enabled; },
+      volume: value => { this.audio.volume = value; },
     });
     this.world = new World(this.ui.canvas, this.circuit); this.world.scene.add(this.car.root);
     this.client = new RoomClient({
@@ -55,21 +61,25 @@ export class Game {
     });
     this.sync = new RaceSync(this.circuit, this.client);
     this.onlineUI = new OnlineUI(root, {
-      create: name => { this.startAudio(); this.client.create(name); },
-      join: (name, code) => { this.startAudio(); this.client.join(name, code); },
+      create: (name, color) => { this.startAudio(); this.client.create(name, color); },
+      join: (name, code, color) => { this.startAudio(); this.client.join(name, code, color); },
+      profile: (name, color) => this.client.send({ type: 'profile', name, color }),
+      preview: color => this.car.setColor(color),
       back: () => this.exit(), leave: () => this.exit(),
       ready: value => this.client.send({ type: 'ready', value }),
       start: () => this.client.send({ type: 'start' }), rematch: () => this.client.send({ type: 'rematch' }),
     });
+    this.stintUI = new StintUI(root, this.circuit, () => this.requestPit());
     this.input = new Input(action => {
+      if (action === 'pit') this.requestPit();
       if (action === 'pause') {
         if (this.mode === 'paused') this.resume();
         else if (this.mode === 'driving' || this.mode === 'racing' || this.mode === 'title') this.pause();
       }
       if (action === 'reset') {
         if (this.mode === 'racing') this.client.send({ type: 'reset' });
-        else if (this.mode === 'driving') {
-          this.vehicle.reset(); this.syncState(); this.chase.reset(); this.ui.toast('Back on the racing line.');
+        else if (this.mode === 'driving' && !this.vehicle.state.pitPhase) {
+          this.vehicle.reset(); this.practiceProgress.afterReset(this.vehicle.state.contactIndex); this.syncState(); this.chase.reset(); this.ui.toast('Back on the racing line.');
         }
       }
       if (action === 'camera' && (this.mode === 'driving' || this.mode === 'racing')) {
@@ -87,7 +97,7 @@ export class Game {
     if (this.client.restore() || new URL(location.href).searchParams.has('room')) this.changeMode('online');
   }
   private changeMode(mode: Mode) {
-    this.mode = mode; this.ui.setMode(mode, this.pausedFromTitle); this.onlineUI?.show(mode);
+    this.mode = mode; this.ui.setMode(mode, this.pausedFromTitle); this.onlineUI?.show(mode); this.stintUI?.show(mode);
     const online = !!this.client?.room;
     const description = document.querySelector('.pause-description')!;
     description.textContent = online ? 'The race continues. AI drives while you take a break.' : 'Find your rhythm. Then find a little more.';
@@ -95,8 +105,13 @@ export class Game {
     document.querySelector('#exit')!.textContent = online ? 'LEAVE ROOM ↗' : 'BACK TO TITLE ↗';
   }
   private startAudio() { void this.audio.start().catch(() => this.ui.toast('Audio unavailable. Driving is ready.')); }
+  private requestPit() {
+    if (this.mode === 'racing') this.client.send({ type: 'pit' });
+    else if (this.mode === 'driving' && !this.vehicle.state.pitPhase) this.vehicle.state.pitRequested = !this.vehicle.state.pitRequested;
+  }
   private drive() {
     this.client.leave(); this.clearOnline(); this.vehicle.reset(true); this.syncState();
+    this.practiceProgress = new RaceProgress(this.circuit, TRACK.startIndex, Infinity);
     this.elapsed = 0; this.accumulator = 0; this.chase.reset(); this.input.clear(); this.pausedFromTitle = false;
     this.changeMode('driving'); this.ui.toast('WASD or arrow keys to drive. Find your rhythm.'); this.startAudio();
   }
@@ -105,7 +120,9 @@ export class Game {
       this.raceCars = TEAMS.map(team => { const car = new FormulaCar(team); this.world.scene.add(car.root); return car; });
     }
     this.car.root.visible = false; this.raceCars.forEach(car => { car.root.visible = true; });
-    this.ui.setOnline(this.client.slot); this.onlineUI.updateRoom(room, this.client.playerId, this.client.slot);
+    this.raceCars.forEach((car, slot) => car.setColor(room.seats[slot].color));
+    this.world.pits.setTeams(room.seats, this.client.slot);
+    this.ui.setOnline(this.client.slot, room.seats); this.onlineUI.updateRoom(room, this.client.playerId, this.client.slot);
     const target: Mode = room.phase === 'lobby' ? 'lobby' : room.phase === 'results' ? 'results' : 'racing';
     if (!(this.mode === 'paused' && target === 'racing') && this.mode !== target) {
       this.pausedFromTitle = false; this.changeMode(target); this.input.clear();
@@ -129,12 +146,13 @@ export class Game {
   }
   private resume() {
     this.input.clear();
+    this.startAudio();
     if (this.client.room) { this.client.send({ type: 'away', value: false }); this.changeMode('racing'); }
     else this.changeMode(this.pausedFromTitle ? 'title' : 'driving');
   }
   private clearOnline() {
     this.sync.clear(); this.raceCars.forEach(car => { car.root.visible = false; });
-    this.car.root.visible = true; this.ui.setOnline(null); this.cameraRevision = ''; this.lastCue = '';
+    this.car.root.visible = true; this.ui.setOnline(null); this.cameraRevision = ''; this.lastCue = ''; this.world.pits.setTeams();
     this.vehicle.reset(true); this.syncState(); this.chase.reset();
   }
   private exit() {
@@ -173,7 +191,7 @@ export class Game {
         this.accumulator += dt;
         while (this.accumulator >= SIMULATION_STEP) {
           Object.assign(this.previous, this.vehicle.state); this.vehicle.step(input, SIMULATION_STEP);
-          this.elapsed += SIMULATION_STEP; this.accumulator -= SIMULATION_STEP;
+          this.elapsed += SIMULATION_STEP; this.practiceProgress.update(this.vehicle.state, this.elapsed); this.accumulator -= SIMULATION_STEP;
         }
         const alpha = this.accumulator / SIMULATION_STEP; Object.assign(this.rendered, this.vehicle.state);
         for (const key of ['x', 'z', 'heading'] as const) this.rendered[key] = this.previous[key] + (this.vehicle.state[key] - this.previous[key]) * alpha;
@@ -182,10 +200,12 @@ export class Game {
     }
     if (this.mode !== 'paused' || online) this.chase.update(this.rendered, dt, ['title', 'online', 'lobby', 'results'].includes(this.mode), now / 1000);
     this.world.followSun(this.rendered.x, this.rendered.z);
+    this.world.pits.update(online ? this.sync.states() : [this.rendered], now / 1000);
     this.audio.update(this.rendered.speed, input.throttle, this.mode === 'driving' || (this.mode === 'racing' && this.client.room?.phase === 'racing'));
     if (now - this.lastHud > 33) {
       this.ui.update(online ? this.rendered : this.vehicle.state, this.elapsed, online ? this.sync.states() : undefined, this.client.slot);
       if (online) this.onlineUI.updateRace(this.sync.latest!, this.client.serverNow(), this.client.ping);
+      this.stintUI.update(online ? this.rendered : this.vehicle.state, this.elapsed, online ? undefined : this.practiceProgress);
       this.lastHud = now;
     }
     this.world.renderer.render(this.world.scene, this.chase.camera); this.frameId = requestAnimationFrame(this.frame);
@@ -195,7 +215,7 @@ export class Game {
     return { mode: this.mode, state: { ...(this.client.room ? this.rendered : this.vehicle.state) }, elapsed: this.elapsed,
       fps: Math.round(this.fps), drawCalls: render.calls, triangles: render.triangles, quality: this.world.quality,
       camera: { x: this.chase.camera.position.x, y: this.chase.camera.position.y, z: this.chase.camera.position.z, fov: this.chase.camera.fov },
-      trackLength: this.circuit.length, network: { status: this.client.status, slot: this.client.slot, room: this.client.room, latest: this.sync.latest },
+      trackLength: this.circuit.length, practice: { laps: this.practiceProgress.completedLaps, sector: this.practiceProgress.sector, lastLap: this.practiceProgress.lastLap, bestLap: this.practiceProgress.bestLap }, audio: this.audio.diagnostics(), carColors: this.raceCars.map(car => car.getColor()), network: { status: this.client.status, slot: this.client.slot, room: this.client.room, latest: this.sync.latest },
     };
   }
   dispose() {

@@ -1,0 +1,22 @@
+Car engine recording
+
+Asset: racing car engine sound loops / loop_0.wav
+Author: domasx2
+Source: https://opengameart.org/content/racing-car-engine-sound-loops
+File: https://opengameart.org/sites/default/files/loop_0.wav
+License: CC0 1.0 Universal
+License URL: https://creativecommons.org/publicdomain/zero/1.0/
+Legal code: https://creativecommons.org/publicdomain/zero/1.0/legalcode
+Retrieved: 2026-10-01
+
+The author describes the loops as edits of a public-domain real car recording:
+http://www.pdsounds.org/sounds/start_up_car_with_seat_belt_warning_beep
+The author's July 24, 2011 update confirms the samples were remade using a
+public-domain source. The current download is offered under CC0.
+
+Stored unchanged as public/audio/car-engine.wav. At playback, Slipstream
+crossfades the loop boundary, normalizes it, filters harsh frequencies, and
+varies playback speed and gain with driving input. No synthesized engine layer.
+
+CC0 permits copying, modifying, distributing and performing the work,
+including for commercial purposes, without asking permission. No warranty.

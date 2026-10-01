@@ -3,7 +3,8 @@ export const TRACK = {
   name: 'Cala Sola',
   width: 13,
   runoff: 5.5,
-  samples: 900,
+  samples: 1800,
+  scale: 2.2,
   startIndex: 12,
 } as const;
 export const VEHICLE = {

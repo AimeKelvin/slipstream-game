@@ -32,7 +32,17 @@ test('real WebSocket rooms synchronize five humans, reject a sixth, and reconnec
   const a = await connect(); a.send({ type: 'create', version: NET.version, name: '<img src=x onerror=alert(1)>' .slice(0,20) });
   const joined = await a.wait('joined'), code = joined.room.code;
   assert.equal(joined.room.seats.length, 6);
-  const b = await connect(); b.send({ type: 'join', version: NET.version, code, name: 'Friend' }); const friend = await b.wait('joined');
+  const b = await connect(); b.send({ type: 'join', version: NET.version, code, name: 'Friend', color: '#70dbe0' }); const friend = await b.wait('joined');
+  assert.equal(friend.room.seats[friend.slot].color, '#70dbe0');
+  b.send({ type: 'ready', value: true });
+  await a.wait('room', m => m.room.seats[friend.slot].ready);
+  b.send({ type: 'profile', name: 'Lagoon racer', color: '#bca0f1' });
+  const profile = await a.wait('room', m => m.room.seats[friend.slot].name === 'Lagoon racer');
+  assert.equal(profile.room.seats[friend.slot].color, '#bca0f1');
+  assert.equal(profile.room.seats[friend.slot].ready, false);
+  b.socket.send(JSON.stringify({ type: 'profile', name: 'Invalid', color: 'url(bad)' }));
+  assert.match((await b.wait('error')).message, /Invalid/);
+  assert.equal(game.rooms.get(code)!.players.get(friend.playerId)!.color, '#bca0f1');
   for (let n = 0; n < 3; n++) { const p = await connect(); p.send({ type: 'join', version: NET.version, code, name: `Other ${n}` }); await p.wait('joined'); }
   const full = await connect(); full.send({ type: 'join', version: NET.version, code, name: 'Sixth' }); assert.match((await full.wait('error')).message, /full/);
   b.send({ type: 'start' }); assert.match((await b.wait('error')).message, /host/);
@@ -43,6 +53,8 @@ test('real WebSocket rooms synchronize five humans, reject a sixth, and reconnec
   const countdownB = await b.wait('room', m => m.room.phase === 'countdown');
   assert.equal(countdownA.room.startAt, countdownB.room.startAt);
   const raceId = countdownA.room.raceId;
+  b.send({ type: 'profile', name: 'Too late', color: '#e9e7d4' });
+  assert.match((await b.wait('error')).message, /lobby/);
   a.send({ type: 'input', seq: 1, raceId, input: { throttle: 1, brake: 0, steer: 0 } });
   b.send({ type: 'input', seq: 1, raceId, input: { throttle: 1, brake: 0, steer: 0 } });
   const snapA = await a.wait('snapshot', s => s.phase === 'racing' && s.elapsed > 0.06);
@@ -56,6 +68,8 @@ test('real WebSocket rooms synchronize five humans, reject a sixth, and reconnec
   const rejoined = await connect(); rejoined.send({ type: 'reconnect', code, token: joined.token, version: NET.version });
   const restored = await rejoined.wait('joined'); assert.equal(restored.playerId, joined.playerId); assert.equal(restored.slot, joined.slot);
   assert.equal(restored.room.ownerId, friend.playerId);
+  assert.equal(restored.room.seats[friend.slot].name, 'Lagoon racer');
+  assert.equal(restored.room.seats[friend.slot].color, '#bca0f1');
   const takeover = await connect(); takeover.send({ type: 'reconnect', code, token: joined.token, version: NET.version });
   assert.equal((await takeover.wait('joined')).playerId, joined.playerId);
   assert.match((await rejoined.wait('error')).message, /another tab/);

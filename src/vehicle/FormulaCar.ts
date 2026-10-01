@@ -10,8 +10,10 @@ export class FormulaCar {
   private frontWheels: T.Group[] = [];
   private tires: T.Group[] = [];
   private brakeLight: T.MeshBasicMaterial;
+  private paint: T.MeshStandardMaterial;
   constructor(livery: { color: string; name: string; number: string } = { color: '#d5f06b', name: 'Veloce', number: '07' }) {
     const paint = material(livery.color, 0.32, 0.3);
+    this.paint = paint;
     const dark = material('#152525', 0.42, 0.4);
     const carbon = material('#1b2021', 0.8, 0.1);
     const rubber = material('#171a1b', 0.96);
@@ -144,7 +146,7 @@ export class FormulaCar {
     box(b, [0.16, 0.1, 0.035], [0, 0.45, -2.12], this.brakeLight);
     const number = new T.Mesh(
       new T.PlaneGeometry(0.24, 0.43),
-      new T.MeshStandardMaterial({ map: textTexture(livery.number, livery.color, '#182b28', 128, 256) }),
+      new T.MeshStandardMaterial({ map: textTexture(livery.number, '#edf2ce', '#182b28', 128, 256) }),
     );
     number.rotation.x = -Math.PI / 2 + 0.193;
     number.position.set(0, 0.627, 1.08);
@@ -208,8 +210,13 @@ export class FormulaCar {
     shadow.position.y = 0.016;
     this.root.add(shadow);
   }
+  setColor(color: string) { this.paint.color.set(color); }
+  getColor() { return `#${this.paint.color.getHexString()}`; }
   update(s: VehicleState, dt: number, brake: number) {
-    this.root.position.set(s.x, 0.055, s.z);
+    const changing = s.pitPhase === 2;
+    const serviceProgress = changing ? 1 - s.pitStopTime / s.pitStopDuration : 0;
+    this.root.position.set(s.x, 0.055 + (changing ? Math.sin(Math.PI * serviceProgress) * 0.18 : 0), s.z);
+    for (const tire of this.tires) tire.visible = !(changing && serviceProgress > 0.32 && serviceProgress < 0.62);
     this.root.rotation.y = s.heading;
     this.body.rotation.z = damp(this.body.rotation.z, -s.lateralForce * 0.0018, 7, dt);
     this.body.rotation.x = damp(this.body.rotation.x, -s.acceleration * 0.0018, 7, dt);

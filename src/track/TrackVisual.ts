@@ -1,5 +1,6 @@
 import * as T from 'three';
 import { Circuit } from './Circuit';
+import { PIT } from './PitLane';
 import { TRACK } from '../core/config';
 import { box, material, textTexture } from '../render/materials';
 import { seededRandom } from '../core/math';
@@ -99,6 +100,7 @@ export function createTrack(circuit: Circuit) {
     const a = circuit.at(i),
       b = circuit.at(i + 3);
     for (const side of [-1, 1]) {
+      if (side === 1 && ((i >= PIT.entryIndex - 3 && i < 43) || (i > 130 && i < PIT.exitIndex + 3))) continue;
       const ax = a.x + a.nx * side * 12.2,
         az = a.z + a.nz * side * 12.2;
       const bx = b.x + b.nx * side * 12.2,
@@ -114,6 +116,7 @@ export function createTrack(circuit: Circuit) {
       n++;
     }
   }
+  barriers.count = tops.count = n;
   barriers.castShadow = true;
   barriers.receiveShadow = true;
   group.add(barriers, tops);
@@ -130,7 +133,7 @@ export function createTrack(circuit: Circuit) {
     }
   for (let slot = 0; slot < 6; slot++) {
     const x = slot % 2 ? 2.8 : -2.8,
-      z = -8 - slot * 6;
+      z = -(6 + slot * 4) * circuit.length / circuit.samples.length;
     box(grid, [2.2, 0.015, 0.12], [x, 0, z], light);
     for (const side of [-1, 1]) box(grid, [0.12, 0.015, 1.7], [x + side * 1.1, 0, z - 0.8], light);
   }
@@ -147,28 +150,25 @@ export function createTrack(circuit: Circuit) {
   sign.position.set(0, 5.51, 1.765);
   sign.rotation.y = Math.PI;
   grid.add(sign);
+  const lampMaterial = material('#502a23');
   for (let i = 0; i < 5; i++) {
     box(grid, [0.44, 0.52, 0.25], [(i - 2) * 0.63, 4.72, 2], dark);
-    const lamp = new T.Mesh(new T.CircleGeometry(0.13, 12), material('#502a23'));
+    const lamp = new T.Mesh(new T.CircleGeometry(0.13, 12), lampMaterial);
     lamp.position.set((i - 2) * 0.63, 4.72, 1.865);
     lamp.rotation.y = Math.PI;
     grid.add(lamp);
   }
   group.add(grid);
-  // Distance boards before major turns.
+  // Reuse three number textures; batch posts and board faces instead of six draws per box.
+  const boardMaterials = [50, 100, 150].map(number => new T.MeshStandardMaterial({
+    map: textTexture(String(number), '#ecebdc', '#243e37', 256, 256), side: T.DoubleSide,
+  }));
   for (const index of [83, 250, 393, 570, 688, 800]) {
     for (let j = 0; j < 3; j++) {
-      const p = circuit.at(index - j * 13);
-      const board = new T.Mesh(new T.BoxGeometry(1.45, 1.3, 0.13), [
-        steel,
-        steel,
-        steel,
-        steel,
-        new T.MeshStandardMaterial({
-          map: textTexture(String(50 + j * 50), '#ecebdc', '#243e37', 256, 256),
-        }),
-        steel,
-      ]);
+      const p = circuit.at(index * 2 - j * 28), board = new T.Group();
+      box(board, [1.45, 1.3, 0.13], [0, 0, 0], steel);
+      const face = new T.Mesh(new T.PlaneGeometry(1.45, 1.3), boardMaterials[j]);
+      face.position.z = 0.071; board.add(face);
       board.position.set(p.x + p.nx * 10.8, 1.8, p.z + p.nz * 10.8);
       board.rotation.y = Math.atan2(p.tx, p.tz) + Math.PI;
       group.add(board);

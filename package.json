@@ -12,7 +12,9 @@
     "test:circuit": "tsx scripts/circuit-drive.ts",
     "format": "prettier --write src server tests scripts docs README.md index.html package.json tsconfig.json vite.config.ts render.yaml",
     "dev:server": "tsx watch server/index.ts",
-    "start": "node dist-server/index.js"
+    "start": "node dist-server/index.js",
+    "test:multiplayer": "tsx scripts/multiplayer-check.ts",
+    "test:pits": "tsx scripts/pit-check.ts"
   },
   "dependencies": {
     "@fontsource/barlow-condensed": "^5.3.0",

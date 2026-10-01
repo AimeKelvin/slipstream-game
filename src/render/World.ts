@@ -1,6 +1,7 @@
 import * as T from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { QUALITY, type Quality } from '../core/config';
+import { PitVisual } from '../track/PitVisual';
 import { createTrack } from '../track/TrackVisual';
 import { createEnvironment } from '../track/Environment';
 import type { Circuit } from '../track/Circuit';
@@ -8,6 +9,7 @@ import { batchStatic } from './batchStatic';
 
 export class World {
   readonly scene = new T.Scene();
+  readonly pits: PitVisual;
   readonly renderer: T.WebGLRenderer;
   private sun = new T.DirectionalLight('#fff1d6', 2.4);
   private env: T.WebGLRenderTarget;
@@ -42,7 +44,8 @@ export class World {
     this.sun.shadow.bias = -0.0003;
     this.sun.shadow.normalBias = 0.035;
     this.scene.add(this.sun, this.sun.target);
-    this.scene.add(batchStatic(createEnvironment(circuit)), createTrack(circuit));
+    this.scene.add(batchStatic(createEnvironment(circuit)), batchStatic(createTrack(circuit)));
+    this.pits = new PitVisual(circuit); this.scene.add(this.pits.root);
     this.setQuality('medium');
   }
   setQuality(quality: Quality) {

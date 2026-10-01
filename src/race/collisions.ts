@@ -4,6 +4,8 @@ import type { VehicleState } from '../vehicle/VehiclePhysics';
 export function resolveCarContacts(states: VehicleState[]) {
   for (let i = 0; i < states.length; i++) for (let j = i + 1; j < states.length; j++) {
     const a = states[i], b = states[j];
+    // Guided pit-lane cars cannot block a service bay or be pushed out of their stop.
+    if (a.pitPhase || b.pitPhase) continue;
     if (Math.hypot(a.x - b.x, a.z - b.z) > 5.5) continue;
     for (const frontA of [-1.05, 1.05]) for (const frontB of [-1.05, 1.05]) {
       const dx = b.x + Math.sin(b.heading) * frontB - a.x - Math.sin(a.heading) * frontA;

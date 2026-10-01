@@ -4,9 +4,10 @@ import { clamp } from './math';
 export class Input {
   private keys = new Set<string>();
   private padReset = false;
+  private padPit = false;
   readonly value: DriverInput = { throttle: 0, brake: 0, steer: 0 };
   gamepadConnected = false;
-  constructor(private action: (action: 'pause' | 'reset' | 'camera') => void) {
+  constructor(private action: (action: 'pause' | 'reset' | 'camera' | 'pit') => void) {
     window.addEventListener('keydown', this.onDown);
     window.addEventListener('keyup', this.onUp);
     window.addEventListener('blur', this.clear);
@@ -20,6 +21,7 @@ export class Input {
     if (!event.repeat) {
       if (event.code === 'Escape') this.action('pause');
       if (event.code === 'KeyR') this.action('reset');
+      if (event.code === 'KeyP') this.action('pit');
       if (event.code === 'KeyC') this.action('camera');
     }
   };
@@ -46,6 +48,9 @@ export class Input {
       const reset = pad.buttons[3]?.pressed ?? false;
       if (reset && !this.padReset) this.action('reset');
       this.padReset = reset;
+      const pit = pad.buttons[2]?.pressed ?? false;
+      if (pit && !this.padPit) this.action('pit');
+      this.padPit = pit;
     }
     this.value.steer = clamp(this.value.steer, -1, 1);
     return this.value;

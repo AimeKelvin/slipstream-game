@@ -25,8 +25,8 @@ export class RoomClient {
   private bestRtt = Infinity;
   private generation = 0;
   constructor(private callbacks: Callbacks) {}
-  create(name: string) { this.begin({ type: 'create', name, version: NET.version }); }
-  join(name: string, code: string) { this.begin({ type: 'join', name, code: code.trim().toUpperCase(), version: NET.version }); }
+  create(name: string, color: string) { this.begin({ type: 'create', name, color, version: NET.version }); }
+  join(name: string, code: string, color: string) { this.begin({ type: 'join', name, color, code: code.trim().toUpperCase(), version: NET.version }); }
   restore() {
     try {
       const saved = JSON.parse(sessionStorage.getItem('slipstream:session') ?? 'null') as Credentials | null;

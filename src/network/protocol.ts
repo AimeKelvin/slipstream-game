@@ -1,7 +1,7 @@
 import type { DriverInput, VehicleState } from '../vehicle/VehiclePhysics';
 
 export const NET = {
-  version: 1, racers: 6, maxHumans: 5, laps: 3, inputHz: 60, snapshotHz: 20,
+  version: 3, racers: 6, maxHumans: 5, laps: 3, inputHz: 60, snapshotHz: 20,
   countdownMs: 5000, reconnectMs: 60000, interpolationMs: 100,
 } as const;
 export const TEAMS = [
@@ -12,10 +12,21 @@ export const TEAMS = [
   { name: 'Rosso', color: '#f2748f', number: '48' },
   { name: 'Alba', color: '#e9e7d4', number: '61' },
 ] as const;
+export const CAR_COLORS = [
+  { name: 'Coastal lime', value: '#d5f06b' },
+  { name: 'Sunset orange', value: '#f59966' },
+  { name: 'Lagoon blue', value: '#70dbe0' },
+  { name: 'Orchid purple', value: '#bca0f1' },
+  { name: 'Coral red', value: '#f2748f' },
+  { name: 'Pearl white', value: '#e9e7d4' },
+] as const;
+export function isCarColor(value: unknown): value is string {
+  return CAR_COLORS.some(color => color.value === value);
+}
 export type Phase = 'lobby' | 'countdown' | 'racing' | 'results';
 export type Control = 'human' | 'ai' | 'reconnecting' | 'autopilot';
 export interface SeatView {
-  slot: number; playerId: string | null; name: string; connected: boolean; ready: boolean; control: Control;
+  slot: number; playerId: string | null; name: string; color: string; connected: boolean; ready: boolean; control: Control;
 }
 export interface RoomView {
   code: string; phase: Phase; ownerId: string | null; seats: SeatView[];
@@ -24,18 +35,19 @@ export interface RoomView {
 export interface RacerSnapshot {
   slot: number; state: VehicleState; ack: number; revision: number;
   distance: number; lap: number; position: number; lapTime: number;
-  bestLap: number | null; finishTime: number | null; control: Control;
+  bestLap: number | null; lastLap: number | null; sector: number; lapValid: boolean; finishTime: number | null; control: Control;
 }
 export interface Snapshot {
   type: 'snapshot'; serverTime: number; raceId: number; phase: Phase;
   elapsed: number; racers: RacerSnapshot[];
 }
 export type ClientMessage =
-  | { type: 'create'; name: string; version: number }
-  | { type: 'join'; code: string; name: string; version: number }
+  | { type: 'create'; name: string; color?: string; version: number }
+  | { type: 'join'; code: string; name: string; color?: string; version: number }
+  | { type: 'profile'; name: string; color: string }
   | { type: 'reconnect'; code: string; token: string; version: number }
   | { type: 'ready'; value: boolean }
-  | { type: 'start' | 'rematch' | 'leave' | 'reset' }
+  | { type: 'start' | 'rematch' | 'leave' | 'reset' | 'pit' }
   | { type: 'away'; value: boolean }
   | { type: 'input'; seq: number; input: DriverInput; raceId: number }
   | { type: 'ping'; sentAt: number };
@@ -56,12 +68,14 @@ export function parseClientMessage(data: string): ClientMessage | null {
     const name = () => typeof m.name === 'string' && m.name.trim().length >= 1 && m.name.length <= 20;
     const code = () => typeof m.code === 'string' && /^[A-Z2-9]{6}$/.test(m.code);
     const version = () => m.version === NET.version;
+    const color = () => m.color === undefined || isCarColor(m.color);
     switch (m.type) {
-      case 'create': return name() && version() ? m as unknown as ClientMessage : null;
-      case 'join': return name() && code() && version() ? m as unknown as ClientMessage : null;
+      case 'create': return name() && color() && version() ? m as unknown as ClientMessage : null;
+      case 'join': return name() && color() && code() && version() ? m as unknown as ClientMessage : null;
+      case 'profile': return name() && isCarColor(m.color) ? m as unknown as ClientMessage : null;
       case 'reconnect': return code() && version() && typeof m.token === 'string' && /^[a-f0-9]{48}$/.test(m.token) ? m as unknown as ClientMessage : null;
       case 'ready': case 'away': return typeof m.value === 'boolean' ? m as unknown as ClientMessage : null;
-      case 'start': case 'rematch': case 'leave': case 'reset': return { type: m.type };
+      case 'start': case 'rematch': case 'leave': case 'reset': case 'pit': return { type: m.type };
       case 'ping': return typeof m.sentAt === 'number' && Number.isFinite(m.sentAt) ? { type: 'ping', sentAt: m.sentAt } : null;
       case 'input': {
         const i = m.input as DriverInput | undefined;

@@ -37,7 +37,7 @@ try {
     lowestFps = 120;
   const captured = new Set<number>();
   const started = Date.now();
-  while (Date.now() - started < 110000 && progress < 910) {
+  while (Date.now() - started < 240000 && progress < circuit.samples.length + 10) {
     const report = await page.evaluate(() => window.__SLIPSTREAM__!.diagnostics());
     assert.equal(report.mode, 'driving');
     const s = report.state;
@@ -47,19 +47,19 @@ try {
     await key('d', delta < -0.065);
     await key('w', s.speed < 19);
     await key('s', s.speed > 21);
-    const advance = ((s.contactIndex - previousIndex + 1350) % 900) - 450;
+    const advance = ((s.contactIndex - previousIndex + circuit.samples.length * 1.5) % circuit.samples.length) - circuit.samples.length / 2;
     progress += advance;
     previousIndex = s.contactIndex;
     worstOffset = Math.max(worstOffset, circuit.nearest(s.x, s.z, s.contactIndex).distance);
     if (s.impact > 0.1) impacts++;
     lowestFps = Math.min(lowestFps, report.fps);
     frames++;
-    const sector = Math.floor(progress / 220);
+    const sector = Math.floor(progress / (circuit.samples.length / 3));
     if (sector > 0 && !captured.has(sector)) {
       captured.add(sector);
       await page.screenshot({ path: `artifacts/circuit-sector-${sector}.png` });
       console.log(
-        `Circuit progress ${Math.round(progress / 9)}%, ${Math.round(s.speed * 3.6)} km/h, ${report.fps} FPS, offset ${worstOffset.toFixed(2)} m`,
+        `Circuit progress ${Math.round(progress / circuit.samples.length * 100)}%, ${Math.round(s.speed * 3.6)} km/h, ${report.fps} FPS, offset ${worstOffset.toFixed(2)} m`,
       );
     }
     await page.waitForTimeout(100);
@@ -67,7 +67,9 @@ try {
   for (const code of [...pressed]) await key(code, false);
   const summary = { progress, worstOffset, impacts, lowestFps, samples: frames, errors };
   await writeFile('artifacts/circuit-drive-report.json', JSON.stringify(summary, null, 2));
-  assert.ok(progress >= 900, `Incomplete circuit: ${progress}/900`);
+  assert.ok(progress >= circuit.samples.length, `Incomplete circuit: ${progress}/${circuit.samples.length}`);
+  const lap = await page.evaluate(() => window.__SLIPSTREAM__!.diagnostics().practice);
+  assert.equal(lap.laps, 1); assert.ok(lap.bestLap !== null && lap.bestLap > 100);
   assert.equal(impacts, 0);
   assert.ok(worstOffset < 6.5, `Left the asphalt: ${worstOffset}`);
   assert.deepEqual(errors, []);

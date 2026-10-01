@@ -1,4 +1,5 @@
 import * as T from 'three';
+import { TRACK } from '../core/config';
 import type { Circuit } from './Circuit';
 import { seededRandom } from '../core/math';
 import { box, material, textTexture } from '../render/materials';
@@ -28,6 +29,7 @@ export function createEnvironment(circuit: Circuit) {
     [13, -282],
     [-115, -297],
   ];
+  for (const point of coastline) { point[0] *= TRACK.scale; point[1] *= TRACK.scale; }
   const shape = new T.Shape();
   coastline.forEach(([x, z], i) => (i ? shape.lineTo(x, -z) : shape.moveTo(x, -z)));
   shape.closePath();
@@ -72,15 +74,15 @@ export function createEnvironment(circuit: Circuit) {
   const trunks = new T.InstancedMesh(
     new T.CylinderGeometry(0.22, 0.4, 4, 6),
     material('#796c50'),
-    150,
+    360,
   );
-  const crowns = new T.InstancedMesh(new T.IcosahedronGeometry(1, 1), foliage, 150);
-  const shrubs = new T.InstancedMesh(new T.IcosahedronGeometry(1, 1), material('#8a9471'), 160);
+  const crowns = new T.InstancedMesh(new T.IcosahedronGeometry(1, 1), foliage, 360);
+  const shrubs = new T.InstancedMesh(new T.IcosahedronGeometry(1, 1), material('#8a9471'), 360);
   let count = 0;
-  for (let tries = 0; tries < 2000 && count < 150; tries++) {
-    const x = -197 + random() * 437,
-      z = -237 + random() * 440;
-    if (circuit.nearest(x, z).distance < 19 || (x < -126 && z > -175 && z < 75)) continue;
+  for (let tries = 0; tries < 2000 && count < 360; tries++) {
+    const x = (-197 + random() * 437) * TRACK.scale,
+      z = (-237 + random() * 440) * TRACK.scale;
+    if (circuit.nearest(x, z).distance < 19 || (x < -126 * TRACK.scale && z > -175 * TRACK.scale && z < 75 * TRACK.scale)) continue;
     const height = 3.2 + random() * 5;
     dummy.position.set(x, height * 0.25, z);
     dummy.scale.set(1, height / 7, 1);
@@ -102,10 +104,10 @@ export function createEnvironment(circuit: Circuit) {
   crowns.castShadow = true;
   group.add(trunks, crowns);
   let shrubCount = 0;
-  for (let tries = 0; tries < 1000 && shrubCount < 160; tries++) {
-    const x = -211 + random() * 477,
-      z = -247 + random() * 465;
-    if (circuit.nearest(x, z).distance < 14) continue;
+  for (let tries = 0; tries < 1000 && shrubCount < 360; tries++) {
+    const x = (-211 + random() * 477) * TRACK.scale,
+      z = (-247 + random() * 465) * TRACK.scale;
+    if (circuit.nearest(x, z).distance < 14 || (x < -126 * TRACK.scale && z > -175 * TRACK.scale && z < 75 * TRACK.scale)) continue;
     dummy.position.set(x, 0.25, z);
     dummy.scale.set(1 + random() * 2, 0.6 + random(), 1 + random() * 2);
     dummy.updateMatrix();
@@ -115,8 +117,8 @@ export function createEnvironment(circuit: Circuit) {
   group.add(shrubs);
   const rocks = new T.InstancedMesh(new T.DodecahedronGeometry(1, 0), stone, 55);
   for (let i = 0; i < 55; i++) {
-    const x = -250 - random() * 50,
-      z = -300 + random() * 540;
+    const x = (-250 - random() * 50) * TRACK.scale,
+      z = (-300 + random() * 540) * TRACK.scale;
     dummy.position.set(x, -4.5, z);
     dummy.scale.set(3 + random() * 7, 1 + random() * 6, 3 + random() * 5);
     dummy.rotation.set(random(), random() * 6, random());
@@ -130,31 +132,13 @@ export function createEnvironment(circuit: Circuit) {
       new T.ConeGeometry(100 + random() * 100, 80 + random() * 100, 7),
       material(i % 2 ? '#8a9e94' : '#98aaa0'),
     );
-    mountain.position.set(-650 - random() * 240, 3, -650 + i * 185);
+    mountain.position.set((-650 - random() * 240) * TRACK.scale, 3, (-650 + i * 185) * TRACK.scale);
     mountain.rotation.y = random() * 6;
     mountain.scale.z = 1.4;
     group.add(mountain);
   }
-  // Pit pavilion: shaded garages, a continuous viewing terrace and a sculptural roof.
-  const pit = new T.Group();
-  pit.position.set(-136, 0, -67);
-  box(pit, [10, 3.5, 62], [0, 1.75, 0], cream);
-  box(pit, [10.6, 0.28, 64], [0, 3.62, 0], dark);
-  box(pit, [7.5, 2.7, 53], [0.7, 5.05, 0], cream);
-  box(pit, [0.06, 1.8, 50], [-3.1, 5.15, 0], material('#5e8782', 0.3, 0.35));
-  box(pit, [12, 0.25, 66], [-0.5, 6.55, 0], cream);
-  for (let i = 0; i < 8; i++) {
-    box(pit, [0.08, 2.65, 5.9], [-5.04, 1.4, -26 + i * 7.5], dark);
-    box(
-      pit,
-      [0.12, 0.16, 5.9],
-      [-5.12, 2.78, -26 + i * 7.5],
-      material(i % 2 ? '#d5f06b' : '#d77a56'),
-    );
-  }
-  group.add(pit);
   const stand = new T.Group();
-  stand.position.set(-190, 0, -7);
+  stand.position.set(-160 * TRACK.scale - 30, 0, -7 * TRACK.scale);
   for (let row = 0; row < 5; row++) {
     box(stand, [1.3, 0.5 + row * 0.65, 39], [-row * 1.35, (0.5 + row * 0.65) / 2, 0], stone);
     for (let seat = 0; seat < 35; seat++)
@@ -171,7 +155,7 @@ export function createEnvironment(circuit: Circuit) {
   group.add(stand);
   // Sailboat and lighthouse identify the coast without filling it with clutter.
   const boat = new T.Group();
-  boat.position.set(-330, -4.1, 35);
+  boat.position.set(-330 * TRACK.scale, -4.1, 35 * TRACK.scale);
   boat.rotation.y = -0.5;
   const hull = new T.Mesh(new T.SphereGeometry(1, 12, 8), cream);
   hull.scale.set(1.5, 0.8, 5);
@@ -185,7 +169,7 @@ export function createEnvironment(circuit: Circuit) {
   );
   group.add(boat);
   const lighthouse = new T.Group();
-  lighthouse.position.set(-213, 0, 156);
+  lighthouse.position.set(-213 * TRACK.scale, 0, 156 * TRACK.scale);
   const tower = new T.Mesh(new T.CylinderGeometry(2, 2.9, 16, 16), cream);
   tower.position.y = 8;
   tower.castShadow = true;
@@ -199,7 +183,7 @@ export function createEnvironment(circuit: Circuit) {
   group.add(lighthouse);
   // Trackside club signs use original fictional branding.
   for (const index of [48, 148, 345, 495, 640, 764]) {
-    const p = circuit.at(index),
+    const p = circuit.at(index * 2),
       sign = new T.Group();
     sign.position.set(p.x + p.nx * 14, 0, p.z + p.nz * 14);
     sign.rotation.y = Math.atan2(p.tx, p.tz);

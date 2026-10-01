@@ -24,7 +24,7 @@ try {
   await page.screenshot({ path: 'artifacts/01-title.png' });
   const read = () => page.evaluate(() => window.__SLIPSTREAM__!.diagnostics());
   console.log('Title:', JSON.stringify(await read()));
-  await page.getByRole('button', { name: 'TAKE THE WHEEL' }).click();
+  await page.getByRole('button', { name: 'SOLO PRACTICE' }).click();
   await page.waitForTimeout(800);
   await page.screenshot({ path: 'artifacts/02-grid.png' });
   await page.keyboard.down('w');
